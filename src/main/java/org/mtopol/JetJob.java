@@ -31,42 +31,42 @@ import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 
-/**
+/*
  * Instructions:
  *
- * Pre-requisites
- * 1. Python3. Suggest to install brew install python3
  *
- * Building Manu's Model
- * 1. Clone https://github.com/mtopolnik/manu-ml-examples
- * 2. See https://github.com/mtopolnik/manu-ml-examples/wiki/How-to-run and follow the instructions up and including the Training the Model step.
+ * Build Manu's Model:
  *
+ * 1. Pre-requisite is Python 3. On MacOS: brew install python3
+ * 2. git clone https://github.com/mtopolnik/manu-ml-examples.git
+ * 3. See https://github.com/mtopolnik/manu-ml-examples/wiki/How-to-run
+ *    and follow the instructions up to and including the step "Training the Model"
  *
- * 2. Checkout https://github.com/mtopolnik/manu-ml-examples and change MANU_EXAMPLES_BASE to point to it.
- * Creating a Jet Distribution from Marko's Python Branch and start it
- * 1. Create a Jet distribution from https://github.com/mtopolnik/hazelcast-jet branch python. Use mvn clean install -Pquick
- * 2. cd hazelcast-jet-distribution/target
- * 3. unzip hazelcast-jet-4.0-SNAPSHOT.zip
- * 4. cd into it
- * 5. mv opt/hazelcast-jet-python-4.0-SNAPSHOT.jar lib/
- * 6. bin/jet-start
+ * Create a Jet Distribution from Marko's Python branch and start it:
  *
- * Submit the Python ML Job
- * 1. From another Terminal tab:
- * 2. cd to jet-job (this project)
- * 3. export PATH=$PATH:/Users/gluck/work/marko_ml/hazelcast-jet/hazelcast-jet-distribution/target/hazelcast-jet-4.0-SNAPSHOT/bin
- * 4. mvn clean package
- * 5. jet submit -v target/jet-job-1.0-SNAPSHOT.jar
+ * 1. git clone https://github.com/mtopolnik/hazelcast-jet.git
+ * 2. git checkout python
+ * 3. mvn clean install -Pquick
+ * 4. cd hazelcast-jet-distribution/target
+ * 5. unzip hazelcast-jet-4.0-SNAPSHOT.zip
+ * 6. cd hazelcast-jet-4.0-SNAPSHOT
+ *    - we'll refer to this directory as $PATH_TO_JET_DISTRO
+ * 7. mv opt/hazelcast-jet-python-4.0-SNAPSHOT.jar lib/
+ * 8. bin/jet-start
  *
+ * Submit the Python ML Job:
  *
- *
+ * 1. git clone https://github.com/mtopolnik/jet-job.git
+ * 2. Change JetJob.java: make MANU_EXAMPLES_BASE to point to manu-ml-examples
+ * 3. mvn clean package
+ * 4. $PATH_TO_JET_DISTRO/bin/jet submit -v target/jet-job-1.0-SNAPSHOT.jar
  */
 public class JetJob {
     private static final long WIN_SIZE = 3;
     private static final long SLIDE_BY = 1;
 
     private JetInstance jet;
-    private static final String MANU_EXAMPLES_BASE = System.getProperty("user.home") + "/work/marko_ml/manu-ml-examples";
+    private static final String MANU_EXAMPLES_BASE = System.getProperty("user.home") + "/dev/python/manu-ml-examples";
 
     public static void main(String[] args) throws IOException {
         JetJob test = new JetJob();
@@ -85,43 +85,6 @@ public class JetJob {
     private void after() {
         Jet.shutdownAll();
     }
-
-//    public void benchmark() {
-//        AllOfAggregationBuilder<Long> stats = allOfBuilder();
-//        Tag<Long> tCount = stats.add(counting());
-//        Tag<Long> tMin = stats.add(minBy(comparing(Long::longValue)));
-//        Tag<Double> tAvg = stats.add(averagingLong(Long::longValue));
-//        Tag<Long> tMax = stats.add(maxBy(comparing(Long::longValue)));
-//
-//        ServiceFactory<PythonService> pythonServiceFactory = PythonService.factory(
-//                "/Users/mtopol/dev/java/hazelcast-jet/hazelcast-jet-python" +
-//                        "/src/main/java/com/hazelcast/jet/python/test", "echo", "handle"
-//        ).withMaxPendingCallsPerProcessor(8);
-//
-//        Pipeline p = Pipeline.create();
-//        p.readFrom(TestSources.itemStream(4_000_000, (timestamp, seq) -> timestamp))
-//         .withNativeTimestamps(0)
-//         .map(Object::toString).mapUsingServiceAsyncBatched(pythonServiceFactory,
-//                Integer.MAX_VALUE,
-//                (PythonService pythonService, List<String> startList1) -> pythonService
-//                        .sendRequest(startList1)
-//                        .thenApply(startList2 -> {
-//                            long now = System.nanoTime();
-//                            return startList2
-//                                    .stream()
-//                                    .map(Long::valueOf)
-//                                    .map(start -> NANOSECONDS.toMicros(now - start))
-//                                    .collect(toList());
-//                        })).setLocalParallelism(8)
-//         .window(sliding(SECONDS.toNanos(WIN_SIZE), SECONDS.toNanos(SLIDE_BY)))
-//         .aggregate(stats.build())
-//         .writeTo(Sinks.logger(wr -> String.format("%,d: %,.1f req/s min %,d µs avg %,.1f µs max %,d µs",
-//                 NANOSECONDS.toSeconds(wr.end()),
-//                 (double) wr.result().get(tCount) / WIN_SIZE,
-//                 wr.result().get(tMin), wr.result().get(tAvg), wr.result().get(tMax))));
-//
-//        jet.newJob(p).join();
-//    }
 
     private void sklearn() {
         Pipeline p = Pipeline.create();
@@ -211,4 +174,41 @@ public class JetJob {
             return 0;
         }
     }
+
+//    public void benchmark() {
+//        AllOfAggregationBuilder<Long> stats = allOfBuilder();
+//        Tag<Long> tCount = stats.add(counting());
+//        Tag<Long> tMin = stats.add(minBy(comparing(Long::longValue)));
+//        Tag<Double> tAvg = stats.add(averagingLong(Long::longValue));
+//        Tag<Long> tMax = stats.add(maxBy(comparing(Long::longValue)));
+//
+//        ServiceFactory<PythonService> pythonServiceFactory = PythonService.factory(
+//                "/Users/mtopol/dev/java/hazelcast-jet/hazelcast-jet-python" +
+//                        "/src/main/java/com/hazelcast/jet/python/test", "echo", "handle"
+//        ).withMaxPendingCallsPerProcessor(8);
+//
+//        Pipeline p = Pipeline.create();
+//        p.readFrom(TestSources.itemStream(4_000_000, (timestamp, seq) -> timestamp))
+//         .withNativeTimestamps(0)
+//         .map(Object::toString).mapUsingServiceAsyncBatched(pythonServiceFactory,
+//                Integer.MAX_VALUE,
+//                (PythonService pythonService, List<String> startList1) -> pythonService
+//                        .sendRequest(startList1)
+//                        .thenApply(startList2 -> {
+//                            long now = System.nanoTime();
+//                            return startList2
+//                                    .stream()
+//                                    .map(Long::valueOf)
+//                                    .map(start -> NANOSECONDS.toMicros(now - start))
+//                                    .collect(toList());
+//                        })).setLocalParallelism(8)
+//         .window(sliding(SECONDS.toNanos(WIN_SIZE), SECONDS.toNanos(SLIDE_BY)))
+//         .aggregate(stats.build())
+//         .writeTo(Sinks.logger(wr -> String.format("%,d: %,.1f req/s min %,d µs avg %,.1f µs max %,d µs",
+//                 NANOSECONDS.toSeconds(wr.end()),
+//                 (double) wr.result().get(tCount) / WIN_SIZE,
+//                 wr.result().get(tMin), wr.result().get(tAvg), wr.result().get(tMax))));
+//
+//        jet.newJob(p).join();
+//    }
 }
