@@ -30,12 +30,43 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
+
+/**
+ * Instructions:
+ *
+ * Pre-requisites
+ * 1. Python3. Suggest to install brew install python3
+ *
+ * Building Manu's Model
+ * 1. Clone https://github.com/mtopolnik/manu-ml-examples
+ * 2. See https://github.com/mtopolnik/manu-ml-examples/wiki/How-to-run and follow the instructions up and including the Training the Model step.
+ *
+ *
+ * 2. Checkout https://github.com/mtopolnik/manu-ml-examples and change MANU_EXAMPLES_BASE to point to it.
+ * Creating a Jet Distribution from Marko's Python Branch and start it
+ * 1. Create a Jet distribution from https://github.com/mtopolnik/hazelcast-jet branch python. Use mvn clean install -Pquick
+ * 2. cd hazelcast-jet-distribution/target
+ * 3. unzip hazelcast-jet-4.0-SNAPSHOT.zip
+ * 4. cd into it
+ * 5. mv opt/hazelcast-jet-python-4.0-SNAPSHOT.jar lib/
+ * 6. bin/jet-start
+ *
+ * Submit the Python ML Job
+ * 1. From another Terminal tab:
+ * 10. cd to jet-job (this project)
+ * 11. export PATH=$PATH:/Users/gluck/work/marko_ml/hazelcast-jet/hazelcast-jet-distribution/target/hazelcast-jet-4.0-SNAPSHOT/bin
+ * 12. mvn clean package
+ * 13. jet submit -v target/jet-job-1.0-SNAPSHOT.jar
+ *
+ *
+ *
+ */
 public class JetJob {
     private static final long WIN_SIZE = 3;
     private static final long SLIDE_BY = 1;
 
     private JetInstance jet;
-    private static final String MANU_EXAMPLES_BASE = System.getProperty("user.home") + "/dev/python/manu-ml-examples";
+    private static final String MANU_EXAMPLES_BASE = System.getProperty("user.home") + "/work/marko_ml/manu-ml-examples";
 
     public static void main(String[] args) throws IOException {
         JetJob test = new JetJob();
