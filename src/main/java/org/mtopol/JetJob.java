@@ -53,10 +53,10 @@ import static java.util.concurrent.TimeUnit.SECONDS;
  *
  * Submit the Python ML Job
  * 1. From another Terminal tab:
- * 10. cd to jet-job (this project)
- * 11. export PATH=$PATH:/Users/gluck/work/marko_ml/hazelcast-jet/hazelcast-jet-distribution/target/hazelcast-jet-4.0-SNAPSHOT/bin
- * 12. mvn clean package
- * 13. jet submit -v target/jet-job-1.0-SNAPSHOT.jar
+ * 2. cd to jet-job (this project)
+ * 3. export PATH=$PATH:/Users/gluck/work/marko_ml/hazelcast-jet/hazelcast-jet-distribution/target/hazelcast-jet-4.0-SNAPSHOT/bin
+ * 4. mvn clean package
+ * 5. jet submit -v target/jet-job-1.0-SNAPSHOT.jar
  *
  *
  *
