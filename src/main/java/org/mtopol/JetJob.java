@@ -7,12 +7,10 @@ import com.hazelcast.jet.JetInstance;
 import com.hazelcast.jet.Job;
 import com.hazelcast.jet.core.Processor;
 import com.hazelcast.jet.pipeline.Pipeline;
-import com.hazelcast.jet.pipeline.ServiceFactory;
 import com.hazelcast.jet.pipeline.Sinks;
 import com.hazelcast.jet.pipeline.SourceBuilder;
 import com.hazelcast.jet.pipeline.SourceBuilder.SourceBuffer;
 import com.hazelcast.jet.pipeline.StreamSource;
-import com.hazelcast.jet.python.PythonService;
 import com.hazelcast.jet.python.PythonServiceConfig;
 import com.hazelcast.jet.server.JetBootstrap;
 import com.opencsv.CSVReader;
@@ -25,11 +23,11 @@ import java.util.Set;
 
 import static com.hazelcast.jet.aggregate.AggregateOperations.counting;
 import static com.hazelcast.jet.pipeline.WindowDefinition.sliding;
+import static com.hazelcast.jet.python.PythonService.mapUsingPython;
 import static java.util.Arrays.asList;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
-
 
 /*
  * Instructions:
@@ -94,16 +92,13 @@ public class JetJob {
                 .destroyFn(IncomeDataSource::destroy)
                 .build();
         String skLearn = MANU_EXAMPLES_BASE + "/examples/sklearn";
-        ServiceFactory<PythonService> pythonService = PythonService
-                .factory(new PythonServiceConfig()
-                        .setBaseDir(skLearn)
-                        .setInitScript("init.sh")
-                        .setHandlerModule("example_1_inference_jet")
-                        .setHandlerFunction("handle"))
-                .withMaxPendingCallsPerProcessor(3);
+        PythonServiceConfig pythonServiceConfig = new PythonServiceConfig()
+                .setBaseDir(skLearn)
+                .setHandlerModule("example_1_inference_jet")
+                .setHandlerFunction("handle");
         p.readFrom(source)
          .withoutTimestamps()
-         .mapUsingServiceAsyncBatched(pythonService, Integer.MAX_VALUE, PythonService::sendRequest)
+         .apply(mapUsingPython(pythonServiceConfig))
          .setLocalParallelism(1)
          .addTimestamps(x -> NANOSECONDS.toMillis(System.nanoTime()), 0)
          .window(sliding(SECONDS.toMillis(WIN_SIZE), SECONDS.toMillis(SLIDE_BY)))
