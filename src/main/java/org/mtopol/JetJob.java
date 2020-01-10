@@ -5,29 +5,41 @@ import com.hazelcast.jet.Jet;
 import com.hazelcast.jet.JetException;
 import com.hazelcast.jet.JetInstance;
 import com.hazelcast.jet.Job;
+import com.hazelcast.jet.aggregate.AllOfAggregationBuilder;
+import com.hazelcast.jet.config.JobConfig;
 import com.hazelcast.jet.core.Processor;
+import com.hazelcast.jet.datamodel.Tag;
 import com.hazelcast.jet.pipeline.Pipeline;
+import com.hazelcast.jet.pipeline.ServiceFactory;
 import com.hazelcast.jet.pipeline.Sinks;
 import com.hazelcast.jet.pipeline.SourceBuilder;
 import com.hazelcast.jet.pipeline.SourceBuilder.SourceBuffer;
 import com.hazelcast.jet.pipeline.StreamSource;
+import com.hazelcast.jet.pipeline.test.TestSources;
+import com.hazelcast.jet.python.PythonService;
 import com.hazelcast.jet.python.PythonServiceConfig;
-import com.hazelcast.jet.server.JetBootstrap;
 import com.opencsv.CSVReader;
 
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
+import static com.hazelcast.function.ComparatorEx.comparing;
+import static com.hazelcast.jet.aggregate.AggregateOperations.allOfBuilder;
+import static com.hazelcast.jet.aggregate.AggregateOperations.averagingLong;
 import static com.hazelcast.jet.aggregate.AggregateOperations.counting;
+import static com.hazelcast.jet.aggregate.AggregateOperations.maxBy;
+import static com.hazelcast.jet.aggregate.AggregateOperations.minBy;
 import static com.hazelcast.jet.pipeline.WindowDefinition.sliding;
 import static com.hazelcast.jet.python.PythonService.mapUsingPython;
 import static java.util.Arrays.asList;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
+import static java.util.stream.Collectors.toList;
 
 /*
  * Instructions:
@@ -64,20 +76,23 @@ public class JetJob {
     private static final long SLIDE_BY = 1;
 
     private JetInstance jet;
-    private static final String MANU_EXAMPLES_BASE = System.getProperty("user.home") + "/dev/python/manu-ml-examples";
+    private static final String MANU_EXAMPLES_BASE =
+            System.getProperty("user.home") + "/dev/python/manu-ml-examples";
+    private static final String ECHO_HANDLER_FILE =
+            System.getProperty("user.home") + "/dev/java/jet-job/src/main/resources/echo.py";
 
     public static void main(String[] args) throws IOException {
         JetJob test = new JetJob();
         test.before();
         try {
-            test.sklearn();
+            test.benchmark();
         } finally {
             test.after();
         }
     }
 
     private void before() {
-        jet = JetBootstrap.getInstance();
+        jet = Jet.bootstrappedInstance();
     }
 
     private void after() {
@@ -92,21 +107,53 @@ public class JetJob {
                 .destroyFn(IncomeDataSource::destroy)
                 .build();
         String skLearn = MANU_EXAMPLES_BASE + "/examples/sklearn";
-        PythonServiceConfig pythonServiceConfig = new PythonServiceConfig()
-                .setBaseDir(skLearn)
-                .setHandlerModule("example_1_inference_jet")
-                .setHandlerFunction("handle");
+
         p.readFrom(source)
          .withoutTimestamps()
-         .apply(mapUsingPython(pythonServiceConfig))
-         .setLocalParallelism(1)
+         .apply(mapUsingPython(new PythonServiceConfig()
+                 .setBaseDir(skLearn)
+                 .setHandlerModule("example_1_inference_jet")
+                 .setHandlerFunction("handle")))
+         .setLocalParallelism(4)
+
          .addTimestamps(x -> NANOSECONDS.toMillis(System.nanoTime()), 0)
          .window(sliding(SECONDS.toMillis(WIN_SIZE), SECONDS.toMillis(SLIDE_BY)))
          .aggregate(counting())
          .writeTo(Sinks.logger(wr -> String.format("%,d: %,.1f req/s",
-                      MILLISECONDS.toSeconds(wr.end()),
-                      (double) wr.result() / WIN_SIZE)
-              ));
+                 MILLISECONDS.toSeconds(wr.end()),
+                 (double) wr.result() / WIN_SIZE)
+         ));
+
+        Job job = jet.newJob(p);
+        Runtime.getRuntime().addShutdownHook(new Thread(job::cancel));
+        job.join();
+    }
+
+    public void benchmark() {
+        AllOfAggregationBuilder<Long> stats = allOfBuilder();
+        Tag<Long> tCount = stats.add(counting());
+        Tag<Long> tMin = stats.add(minBy(comparing(Long::longValue)));
+        Tag<Double> tAvg = stats.add(averagingLong(Long::longValue));
+        Tag<Long> tMax = stats.add(maxBy(comparing(Long::longValue)));
+
+        PythonServiceConfig pythonServiceConfig = new PythonServiceConfig()
+                .setHandlerFile("/Users/mtopol/dev/java/jet-job/src/main/resources/echo.py")
+                .setHandlerFunction("handle");
+
+        Pipeline p = Pipeline.create();
+        p.readFrom(TestSources.itemStream(4_000_000, (timestamp, seq) -> timestamp))
+         .withNativeTimestamps(0)
+         .map(Object::toString)
+         .apply(mapUsingPython(pythonServiceConfig))
+         .map(item -> NANOSECONDS.toMicros(System.nanoTime() - Long.parseLong(item.substring(6))))
+         .setLocalParallelism(8)
+         .window(sliding(SECONDS.toNanos(WIN_SIZE), SECONDS.toNanos(SLIDE_BY)))
+         .aggregate(stats.build())
+         .writeTo(Sinks.logger(wr -> String.format("%,d: %,.1f req/s min %,d µs avg %,.1f µs max %,d µs",
+                 NANOSECONDS.toSeconds(wr.end()),
+                 (double) wr.result().get(tCount) / WIN_SIZE,
+                 wr.result().get(tMin), wr.result().get(tAvg), wr.result().get(tMax))));
+
         Job job = jet.newJob(p);
         Runtime.getRuntime().addShutdownHook(new Thread(job::cancel));
         job.join();
@@ -169,41 +216,4 @@ public class JetJob {
             return 0;
         }
     }
-
-//    public void benchmark() {
-//        AllOfAggregationBuilder<Long> stats = allOfBuilder();
-//        Tag<Long> tCount = stats.add(counting());
-//        Tag<Long> tMin = stats.add(minBy(comparing(Long::longValue)));
-//        Tag<Double> tAvg = stats.add(averagingLong(Long::longValue));
-//        Tag<Long> tMax = stats.add(maxBy(comparing(Long::longValue)));
-//
-//        ServiceFactory<PythonService> pythonServiceFactory = PythonService.factory(
-//                "/Users/mtopol/dev/java/hazelcast-jet/hazelcast-jet-python" +
-//                        "/src/main/java/com/hazelcast/jet/python/test", "echo", "handle"
-//        ).withMaxPendingCallsPerProcessor(8);
-//
-//        Pipeline p = Pipeline.create();
-//        p.readFrom(TestSources.itemStream(4_000_000, (timestamp, seq) -> timestamp))
-//         .withNativeTimestamps(0)
-//         .map(Object::toString).mapUsingServiceAsyncBatched(pythonServiceFactory,
-//                Integer.MAX_VALUE,
-//                (PythonService pythonService, List<String> startList1) -> pythonService
-//                        .sendRequest(startList1)
-//                        .thenApply(startList2 -> {
-//                            long now = System.nanoTime();
-//                            return startList2
-//                                    .stream()
-//                                    .map(Long::valueOf)
-//                                    .map(start -> NANOSECONDS.toMicros(now - start))
-//                                    .collect(toList());
-//                        })).setLocalParallelism(8)
-//         .window(sliding(SECONDS.toNanos(WIN_SIZE), SECONDS.toNanos(SLIDE_BY)))
-//         .aggregate(stats.build())
-//         .writeTo(Sinks.logger(wr -> String.format("%,d: %,.1f req/s min %,d µs avg %,.1f µs max %,d µs",
-//                 NANOSECONDS.toSeconds(wr.end()),
-//                 (double) wr.result().get(tCount) / WIN_SIZE,
-//                 wr.result().get(tMin), wr.result().get(tAvg), wr.result().get(tMax))));
-//
-//        jet.newJob(p).join();
-//    }
 }
