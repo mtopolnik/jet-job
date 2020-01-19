@@ -6,17 +6,14 @@ import com.hazelcast.jet.JetException;
 import com.hazelcast.jet.JetInstance;
 import com.hazelcast.jet.Job;
 import com.hazelcast.jet.aggregate.AllOfAggregationBuilder;
-import com.hazelcast.jet.config.JobConfig;
 import com.hazelcast.jet.core.Processor;
 import com.hazelcast.jet.datamodel.Tag;
 import com.hazelcast.jet.pipeline.Pipeline;
-import com.hazelcast.jet.pipeline.ServiceFactory;
 import com.hazelcast.jet.pipeline.Sinks;
 import com.hazelcast.jet.pipeline.SourceBuilder;
 import com.hazelcast.jet.pipeline.SourceBuilder.SourceBuffer;
 import com.hazelcast.jet.pipeline.StreamSource;
 import com.hazelcast.jet.pipeline.test.TestSources;
-import com.hazelcast.jet.python.PythonService;
 import com.hazelcast.jet.python.PythonServiceConfig;
 import com.opencsv.CSVReader;
 
@@ -24,7 +21,6 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 import static com.hazelcast.function.ComparatorEx.comparing;
@@ -39,7 +35,6 @@ import static java.util.Arrays.asList;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
-import static java.util.stream.Collectors.toList;
 
 /*
  * Instructions:
@@ -85,7 +80,7 @@ public class JetJob {
         JetJob test = new JetJob();
         test.before();
         try {
-            test.benchmark();
+            test.sklearn();
         } finally {
             test.after();
         }
@@ -114,7 +109,7 @@ public class JetJob {
                  .setBaseDir(skLearn)
                  .setHandlerModule("example_1_inference_jet")
                  .setHandlerFunction("handle")))
-         .setLocalParallelism(4)
+         .setLocalParallelism(1)
 
          .addTimestamps(x -> NANOSECONDS.toMillis(System.nanoTime()), 0)
          .window(sliding(SECONDS.toMillis(WIN_SIZE), SECONDS.toMillis(SLIDE_BY)))
