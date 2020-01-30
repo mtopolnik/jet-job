@@ -6,6 +6,7 @@ import com.hazelcast.jet.JetException;
 import com.hazelcast.jet.JetInstance;
 import com.hazelcast.jet.Job;
 import com.hazelcast.jet.aggregate.AllOfAggregationBuilder;
+import com.hazelcast.jet.config.JobConfig;
 import com.hazelcast.jet.core.Processor;
 import com.hazelcast.jet.datamodel.Tag;
 import com.hazelcast.jet.pipeline.Pipeline;
@@ -17,8 +18,13 @@ import com.hazelcast.jet.pipeline.test.TestSources;
 import com.hazelcast.jet.python.PythonServiceConfig;
 import com.opencsv.CSVReader;
 
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
@@ -30,7 +36,7 @@ import static com.hazelcast.jet.aggregate.AggregateOperations.counting;
 import static com.hazelcast.jet.aggregate.AggregateOperations.maxBy;
 import static com.hazelcast.jet.aggregate.AggregateOperations.minBy;
 import static com.hazelcast.jet.pipeline.WindowDefinition.sliding;
-import static com.hazelcast.jet.python.PythonService.mapUsingPython;
+import static com.hazelcast.jet.python.PythonTransforms.mapUsingPython;
 import static java.util.Arrays.asList;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
@@ -69,14 +75,16 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 public class JetJob {
     private static final long WIN_SIZE = 3;
     private static final long SLIDE_BY = 1;
-
-    private JetInstance jet;
+    private static final String ECHO_HANDLER_FUNCTION =
+            "def handle(list):\n" +
+            "    return ['reply' + item for item in list]\n";
     private static final String MANU_EXAMPLES_BASE =
             System.getProperty("user.home") + "/dev/python/manu-ml-examples";
-    private static final String ECHO_HANDLER_FILE =
-            System.getProperty("user.home") + "/dev/java/jet-job/src/main/resources/echo.py";
+    private static final String INPUT_CSV = "income.data.txt";
 
-    public static void main(String[] args) throws IOException {
+    private JetInstance jet;
+
+    public static void main(String[] args) throws FileNotFoundException {
         JetJob test = new JetJob();
         test.before();
         try {
@@ -94,7 +102,7 @@ public class JetJob {
         Jet.shutdownAll();
     }
 
-    private void sklearn() {
+    private void sklearn() throws FileNotFoundException {
         Pipeline p = Pipeline.create();
         StreamSource<String> source = SourceBuilder
                 .stream("income_data", IncomeDataSource::new)
@@ -119,12 +127,17 @@ public class JetJob {
                  (double) wr.result() / WIN_SIZE)
          ));
 
-        Job job = jet.newJob(p);
+        JobConfig jobCfg = new JobConfig()
+                .attachFile(MANU_EXAMPLES_BASE + "/datasets/" + INPUT_CSV);
+        Job job = jet.newJob(p, jobCfg);
         Runtime.getRuntime().addShutdownHook(new Thread(job::cancel));
         job.join();
     }
 
-    public void benchmark() {
+    public void benchmark() throws IOException {
+        Path echoFile = Files.createTempFile(Paths.get(System.getProperty("user.dir")), "", "echo.py");
+        echoFile.toFile().deleteOnExit();
+        Files.writeString(echoFile, ECHO_HANDLER_FUNCTION);
         AllOfAggregationBuilder<Long> stats = allOfBuilder();
         Tag<Long> tCount = stats.add(counting());
         Tag<Long> tMin = stats.add(minBy(comparing(Long::longValue)));
@@ -132,7 +145,7 @@ public class JetJob {
         Tag<Long> tMax = stats.add(maxBy(comparing(Long::longValue)));
 
         PythonServiceConfig pythonServiceConfig = new PythonServiceConfig()
-                .setHandlerFile("/Users/mtopol/dev/java/jet-job/src/main/resources/echo.py")
+                .setHandlerFile(echoFile.toString())
                 .setHandlerFunction("handle");
 
         Pipeline p = Pipeline.create();
@@ -155,6 +168,8 @@ public class JetJob {
     }
 
     static class IncomeDataSource {
+        private final File inputFile;
+
         private CSVReader csv;
         private String[] columns;
         private final Set<String> intColumns = new HashSet<>(asList(
@@ -162,12 +177,13 @@ public class JetJob {
         ));
 
         IncomeDataSource(Processor.Context ctx) {
+            inputFile = ctx.attachedFile(INPUT_CSV);
             initialize();
         }
 
         private void initialize() {
             try {
-                csv = new CSVReader(new FileReader(MANU_EXAMPLES_BASE + "/datasets/income.data.txt"));
+                csv = new CSVReader(new FileReader(inputFile));
                 columns = csv.readNext();
             } catch (IOException e) {
                 throw new JetException(e);
