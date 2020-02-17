@@ -19,7 +19,6 @@ import com.hazelcast.jet.python.PythonServiceConfig;
 import com.opencsv.CSVReader;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -44,7 +43,6 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 
 /*
  * Instructions:
- *
  *
  * Build Manu's Model:
  *
@@ -73,18 +71,21 @@ import static java.util.concurrent.TimeUnit.SECONDS;
  * 4. $PATH_TO_JET_DISTRO/bin/jet submit -v target/jet-job-1.0-SNAPSHOT.jar
  */
 public class JetJob {
+    private static final Set<String> INT_COLUMNS = new HashSet<>(asList(
+            "age", "fnlwgt", "education-num", "capital-gain", "capital-loss", "hours-per-week"
+    ));
     private static final long WIN_SIZE = 3;
     private static final long SLIDE_BY = 1;
     private static final String ECHO_HANDLER_FUNCTION =
-            "def handle(list):\n" +
-            "    return ['reply' + item for item in list]\n";
-    private static final String MANU_EXAMPLES_BASE =
+            "def transform_list(input_list):\n" +
+            "    return ['reply' + item for item in input_list]\n";
+    private static final String PYTHON_ML_BASE =
             System.getProperty("user.home") + "/dev/python/manu-ml-examples";
     private static final String INPUT_CSV = "income.data.txt";
 
     private JetInstance jet;
 
-    public static void main(String[] args) throws FileNotFoundException {
+    public static void main(String[] args) {
         JetJob test = new JetJob();
         test.before();
         try {
@@ -102,23 +103,22 @@ public class JetJob {
         Jet.shutdownAll();
     }
 
-    private void sklearn() throws FileNotFoundException {
-        Pipeline p = Pipeline.create();
+    private void sklearn() {
+        String skLearn = PYTHON_ML_BASE + "/examples/sklearn";
+
         StreamSource<String> source = SourceBuilder
                 .stream("income_data", IncomeDataSource::new)
                 .fillBufferFn(IncomeDataSource::fillBuffer)
                 .destroyFn(IncomeDataSource::destroy)
                 .build();
-        String skLearn = MANU_EXAMPLES_BASE + "/examples/sklearn";
 
+        Pipeline p = Pipeline.create();
         p.readFrom(source)
          .withoutTimestamps()
-         .apply(mapUsingPython(new PythonServiceConfig()
+         .apply(mapUsingPython(x -> x, new PythonServiceConfig()
                  .setBaseDir(skLearn)
-                 .setHandlerModule("example_1_inference_jet")
-                 .setHandlerFunction("handle")))
+                 .setHandlerModule("example_1_inference_jet")))
          .setLocalParallelism(1)
-
          .addTimestamps(x -> NANOSECONDS.toMillis(System.nanoTime()), 0)
          .window(sliding(SECONDS.toMillis(WIN_SIZE), SECONDS.toMillis(SLIDE_BY)))
          .aggregate(counting())
@@ -128,7 +128,7 @@ public class JetJob {
          ));
 
         JobConfig jobCfg = new JobConfig()
-                .attachFile(MANU_EXAMPLES_BASE + "/datasets/" + INPUT_CSV);
+                .attachFile(PYTHON_ML_BASE + "/datasets/" + INPUT_CSV);
         Job job = jet.newJob(p, jobCfg);
         Runtime.getRuntime().addShutdownHook(new Thread(job::cancel));
         job.join();
@@ -145,8 +145,7 @@ public class JetJob {
         Tag<Long> tMax = stats.add(maxBy(comparing(Long::longValue)));
 
         PythonServiceConfig pythonServiceConfig = new PythonServiceConfig()
-                .setHandlerFile(echoFile.toString())
-                .setHandlerFunction("handle");
+                .setHandlerFile(echoFile.toString());
 
         Pipeline p = Pipeline.create();
         p.readFrom(TestSources.itemStream(4_000_000, (timestamp, seq) -> timestamp))
@@ -172,9 +171,6 @@ public class JetJob {
 
         private CSVReader csv;
         private String[] columns;
-        private final Set<String> intColumns = new HashSet<>(asList(
-                "age", "fnlwgt", "education-num", "capital-gain", "capital-loss", "hours-per-week"
-        ));
 
         IncomeDataSource(Processor.Context ctx) {
             inputFile = ctx.attachedFile(INPUT_CSV);
@@ -201,22 +197,26 @@ public class JetJob {
                 if (values.length <= 1) {
                     continue;
                 }
-                JsonObject json = new JsonObject();
-                for (int j = 0; j < values.length; j++) {
-                    if (intColumns.contains(columns[j])) {
-                        int value = parseOrZero(values[j], values);
-                        json.add(columns[j], value);
-                    } else {
-                        json.add(columns[j], values[j]);
-                    }
-                }
-                buf.add(json.toString());
+                buf.add(toJson(columns, values));
             }
         }
 
         void destroy() throws IOException {
             csv.close();
         }
+    }
+
+    static String toJson(String[] keys, String[] values) {
+        JsonObject json = new JsonObject();
+        for (int j = 0; j < values.length; j++) {
+            if (INT_COLUMNS.contains(keys[j])) {
+                int value = parseOrZero(values[j], values);
+                json.add(keys[j], value);
+            } else {
+                json.add(keys[j], values[j]);
+            }
+        }
+        return json.toString();
     }
 
     private static int parseOrZero(String in, String[] row) {
