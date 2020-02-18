@@ -5,10 +5,12 @@ import com.hazelcast.jet.Jet;
 import com.hazelcast.jet.JetException;
 import com.hazelcast.jet.JetInstance;
 import com.hazelcast.jet.Job;
+import com.hazelcast.jet.Observable;
 import com.hazelcast.jet.aggregate.AllOfAggregationBuilder;
 import com.hazelcast.jet.config.JobConfig;
 import com.hazelcast.jet.core.Processor;
 import com.hazelcast.jet.datamodel.Tag;
+import com.hazelcast.jet.datamodel.WindowResult;
 import com.hazelcast.jet.pipeline.Pipeline;
 import com.hazelcast.jet.pipeline.Sinks;
 import com.hazelcast.jet.pipeline.SourceBuilder;
@@ -24,9 +26,17 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.format.FormatStyle;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.TimeZone;
+import java.util.concurrent.locks.LockSupport;
 
 import static com.hazelcast.function.ComparatorEx.comparing;
 import static com.hazelcast.jet.aggregate.AggregateOperations.allOfBuilder;
@@ -82,6 +92,7 @@ public class JetJob {
     private static final String PYTHON_ML_BASE =
             System.getProperty("user.home") + "/dev/python/manu-ml-examples";
     private static final String INPUT_CSV = "income.data.txt";
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     private JetInstance jet;
 
@@ -105,6 +116,7 @@ public class JetJob {
 
     private void sklearn() {
         String skLearn = PYTHON_ML_BASE + "/examples/sklearn";
+        Observable<WindowResult<Long>> observable = jet.newObservable();
 
         StreamSource<String> source = SourceBuilder
                 .stream("income_data", IncomeDataSource::new)
@@ -119,18 +131,24 @@ public class JetJob {
                  .setBaseDir(skLearn)
                  .setHandlerModule("example_1_inference_jet")))
          .setLocalParallelism(1)
-         .addTimestamps(x -> NANOSECONDS.toMillis(System.nanoTime()), 0)
+         .addTimestamps(x -> System.currentTimeMillis(), 0)
          .window(sliding(SECONDS.toMillis(WIN_SIZE), SECONDS.toMillis(SLIDE_BY)))
          .aggregate(counting())
-         .writeTo(Sinks.logger(wr -> String.format("%,d: %,.1f req/s",
-                 MILLISECONDS.toSeconds(wr.end()),
-                 (double) wr.result() / WIN_SIZE)
-         ));
+         .writeTo(Sinks.observable(observable));
 
         JobConfig jobCfg = new JobConfig()
                 .attachFile(PYTHON_ML_BASE + "/datasets/" + INPUT_CSV);
         Job job = jet.newJob(p, jobCfg);
-        Runtime.getRuntime().addShutdownHook(new Thread(job::cancel));
+
+        observable.addObserver(wr -> System.out.format("%s: %,.1f req/s%n",
+                TIME_FORMATTER.format(LocalDateTime.ofInstant(Instant.ofEpochMilli(wr.end()), ZoneId.systemDefault())),
+                (double) wr.result() / WIN_SIZE));
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            job.cancel();
+            LockSupport.parkNanos(500);
+            observable.destroy();
+        }));
         job.join();
     }
 
