@@ -45,16 +45,13 @@ import static java.util.concurrent.TimeUnit.SECONDS;
  * 3. See https://github.com/mtopolnik/manu-ml-examples/wiki/How-to-run
  *    and follow the instructions up to and including the step "Training the Model"
  *
- * Create a Jet Distribution from Marko's Python branch and start it:
+ * Download the Jet Distribution and activate the Python plugin:
  *
- * 1. git clone https://github.com/mtopolnik/hazelcast-jet.git
- * 2. git checkout python
- * 3. mvn clean install -Pquick
- * 4. cd hazelcast-jet-distribution/target
- * 5. unzip hazelcast-jet-4.0-SNAPSHOT.zip
- * 6. cd hazelcast-jet-4.0-SNAPSHOT
+ * 1. wget https://github.com/hazelcast/hazelcast-jet/releases/download/v4.2/hazelcast-jet-4.2.tar.gz
+ * 2. tar xvf hazelcast-jet-4.2.tar.gz
+ * 6. cd hazelcast-jet-4.2
  *    - we'll refer to this directory as $PATH_TO_JET_DISTRO
- * 7. mv opt/hazelcast-jet-python-4.0-SNAPSHOT.jar lib/
+ * 7. mv opt/hazelcast-jet-python-4.2.jar lib/
  * 8. bin/jet-start
  *
  * Submit the Python ML Job:
