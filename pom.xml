@@ -45,7 +45,7 @@
         <dependency>
             <groupId>com.hazelcast.jet</groupId>
             <artifactId>hazelcast-jet</artifactId>
-            <version>4.2</version>
+            <version>4.5.3</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
